@@ -13,15 +13,9 @@ const PORT = process.env.PORT || 5000;
 const JWT_SECRET = process.env.JWT_SECRET; // must be set in Render
 
 // ================= MIDDLEWARE =================
-app.use(cors({ origin: '*' })); // allow all origins for testing, can restrict later
+app.use(cors());
 app.use(express.json());
 app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
-
-// Optional: log incoming requests
-app.use((req, res, next) => {
-  console.log(`${req.method} ${req.url} - Body:`, req.body);
-  next();
-});
 
 // ================= HEALTH CHECK =================
 app.get('/', (req, res) => {
@@ -33,6 +27,7 @@ const db = new sqlite3.Database(path.join(__dirname, 'cityfix.db'));
 
 // ================= CREATE TABLES =================
 db.serialize(() => {
+
   db.run(`CREATE TABLE IF NOT EXISTS users (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     name TEXT NOT NULL,
@@ -63,12 +58,17 @@ db.serialize(() => {
     FOREIGN KEY (assigned_worker_id) REFERENCES users (id)
   )`);
 
-  // create default admin
+  // ================= CREATE OR UPDATE ADMIN =================
   const adminPassword = bcrypt.hashSync('admin123', 10);
   db.run(
-    `INSERT OR IGNORE INTO users (name, email, password, role)
-     VALUES ('Admin', 'admin@cityfix.com', ?, 'admin')`,
-    [adminPassword]
+    `INSERT INTO users (name, email, password, role)
+     VALUES ('Admin', 'admin@cityfix.com', ?, 'admin')
+     ON CONFLICT(email) DO UPDATE SET password=excluded.password`,
+    [adminPassword],
+    (err) => {
+      if (err) console.error('Error creating admin:', err.message);
+      else console.log('Admin user ensured in DB');
+    }
   );
 });
 
@@ -133,14 +133,10 @@ app.post('/api/register', async (req, res) => {
           { expiresIn: '24h' }
         );
 
-        // return token + user
-        res.json({
-          token,
-          user: { id: this.lastID, name, email, role }
-        });
+        res.json({ token, user: { id: this.lastID, name, email, role } });
       }
     );
-  } catch (error) {
+  } catch {
     res.status(500).json({ error: 'Server error' });
   }
 });
@@ -161,11 +157,7 @@ app.post('/api/login', (req, res) => {
       { expiresIn: '24h' }
     );
 
-    // return token + user
-    res.json({
-      token,
-      user: { id: user.id, name: user.name, email: user.email, role: user.role }
-    });
+    res.json({ token, user: { id: user.id, name: user.name, email: user.email, role: user.role } });
   });
 });
 
