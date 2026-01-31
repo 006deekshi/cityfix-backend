@@ -10,12 +10,18 @@ require('dotenv').config();
 
 const app = express();
 const PORT = process.env.PORT || 5000;
-const JWT_SECRET = process.env.JWT_SECRET; // 🔐 ENV only (no fallback)
+const JWT_SECRET = process.env.JWT_SECRET; // must be set in Render
 
 // ================= MIDDLEWARE =================
-app.use(cors());
+app.use(cors({ origin: '*' })); // allow all origins for testing, can restrict later
 app.use(express.json());
 app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
+
+// Optional: log incoming requests
+app.use((req, res, next) => {
+  console.log(`${req.method} ${req.url} - Body:`, req.body);
+  next();
+});
 
 // ================= HEALTH CHECK =================
 app.get('/', (req, res) => {
@@ -27,7 +33,6 @@ const db = new sqlite3.Database(path.join(__dirname, 'cityfix.db'));
 
 // ================= CREATE TABLES =================
 db.serialize(() => {
-
   db.run(`CREATE TABLE IF NOT EXISTS users (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     name TEXT NOT NULL,
@@ -58,6 +63,7 @@ db.serialize(() => {
     FOREIGN KEY (assigned_worker_id) REFERENCES users (id)
   )`);
 
+  // create default admin
   const adminPassword = bcrypt.hashSync('admin123', 10);
   db.run(
     `INSERT OR IGNORE INTO users (name, email, password, role)
@@ -103,6 +109,8 @@ const authenticateToken = (req, res, next) => {
 };
 
 // ================= AUTH ROUTES =================
+
+// Register
 app.post('/api/register', async (req, res) => {
   const { name, email, password, role = 'citizen' } = req.body;
 
@@ -125,14 +133,19 @@ app.post('/api/register', async (req, res) => {
           { expiresIn: '24h' }
         );
 
-        res.json({ token });
+        // return token + user
+        res.json({
+          token,
+          user: { id: this.lastID, name, email, role }
+        });
       }
     );
-  } catch {
+  } catch (error) {
     res.status(500).json({ error: 'Server error' });
   }
 });
 
+// Login
 app.post('/api/login', (req, res) => {
   const { email, password } = req.body;
 
@@ -148,7 +161,11 @@ app.post('/api/login', (req, res) => {
       { expiresIn: '24h' }
     );
 
-    res.json({ token });
+    // return token + user
+    res.json({
+      token,
+      user: { id: user.id, name: user.name, email: user.email, role: user.role }
+    });
   });
 });
 
